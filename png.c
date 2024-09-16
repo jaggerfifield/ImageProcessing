@@ -34,49 +34,6 @@ unsigned int hex_to_decimal(unsigned char*, size_t);
 int colorize();
 void printer(pOrder* order);
 
-void file_test( void ){
-	FILE* fp = fopen("./t.png", "rb");
-	pOrder order;
-
-	order.count = 0;
-	order.auxdata = "HI";
-
-	int color = 31;
-
-	if(fp == NULL)
-		return;
-
-	fseek(fp, 0, SEEK_END);
-	printf("Size of file is: %lu bytes.\n", ftell(fp));
-	int x = fseek(fp, 0, SEEK_SET);
-
-	if(x != 0)
-		printf("Error");
-
-	x = fseek(fp, 8192, SEEK_SET);
-
-	if(x != 0)
-		printf("Error");
-	/*
-	while(feof(fp) == 0){
-		printf("Current location: %lu ", ftell(fp));
-		fread(data, 1, 32, fp);
-
-		order.type = PRINT_HEX;
-		order.data = data;
-		order.size = 32;
-		order.fg_color = color;
-		order.bg_color = 0;
-		printer(&order);
-
-		color += 1;
-		if(color > 40)
-			color = 31;
-
-	}
-*/
-}
-
 int main(int argc, char* argv[]){
 	unsigned int path = 0; 
 
@@ -84,10 +41,8 @@ int main(int argc, char* argv[]){
 	if(colorize() != 0)
 		return -1;
 
-	//file_test();
-
 	// Look for a image path in arguments
-	for(uint8_t i = 0; i < argc; i++)
+	for(unsigned int i = 0; i < argc; i++)
 		if(strcmp(argv[i], "-p") == 0)
 			path = i + 1;
 	if(path == 0){
@@ -148,6 +103,7 @@ void readPNG(char* path, bool verbose){
 		return;
 	}
 	
+	// Determine the image size
 	fseek(fp_image, 0, SEEK_END);
 	printf("Size %ld bytes\n", ftell(fp_image));
 	fseek(fp_image, 0, SEEK_SET);
@@ -168,10 +124,9 @@ void readPNG(char* path, bool verbose){
 		printer(&order);
 	}
 
-	if(memcmp(data, PNG_signature, 8) != 0){
-		printf("\nPNG header not found in first 8 bytes!\n");
-		return;
-	}
+	// Check if valid PNG
+	if(memcmp(data, PNG_signature, 8) != 0)
+		fprintf(stderr, "\nPNG header not found in first 8 bytes!\n"); return;
 
 	if(verbose)
 		printf(" -> \x1b[32mPNG\x1b[0m signature found!");
@@ -179,22 +134,17 @@ void readPNG(char* path, bool verbose){
 	// Clear the data buffer
 	memset(data, '\0', buffer_size);
 
-	// ===================================
-	// This reads chunks
-	// ===================================
-
+	// ========= This reads chunks ==============
 	while(running){
 		// First we need to read the 4 bytes to get the length
-		check = fread(data, 1, 4, fp_image);
-	
-		if(check != 4)
-			printf("fread size does not match!\n");
+		if(fread(data, 1, 4, fp_image) != 4)
+			fprintf(stderr, "fread size does not match!\n"); perror("readPNG"); return;
 
 		chunk_length = hex_to_decimal(data, 4);
-		if(chunk_length > buffer_size){
-			printf("Overflow\n");
-			return;
-		}
+		
+		// Check our buffer size
+		if(chunk_length > buffer_size)
+			fprintf(stderr, "Buffer overflow\n"); return;
 
 		if(verbose){
 			order.type = PRINT_HEX;
@@ -208,15 +158,14 @@ void readPNG(char* path, bool verbose){
 		memset(data, '\0', buffer_size);
 
 		// Next we need to discover the chunk type (4 bytes)
-		check = fread(data, 1, 4, fp_image);
+		if(fread(data, 1, 4, fp_image) != 4)
+			fprintf("fread size does not match!\n"); perror("readPNG"); return;
 
-		if(check != 4)
-			printf("fread size does not match!\n");
-
+		// Look through the chunk types to see what we have
 		for(unsigned int i = 0; i < chunk_types; i++){
 			if(memcmp(data, chunks[i], 4) == 0){
 				sprintf(order.auxdata, " -> Found \x1b[36m%s\x1b[0m chunk. (\x1b[31mLength\x1b[0m: %llu)", chunks[i], chunk_length);
-				if(i == 3) // IEND
+				if(i == 3) // IEND chunk, we are done
 					running = false;
 			}
 		}
@@ -232,16 +181,15 @@ void readPNG(char* path, bool verbose){
 
 		memset(data, '\0', buffer_size);
 		
-		if(running && (chunk_length == 0)){
-			printf("Bad chunk length\n");
-			return;
-		}
+		// TODO is this needed?
+		if(running && (chunk_length == 0))
+			printf("Bad chunk length\n"); //return;
 
 		// The the remaining chunk data
-		check = fread(data, 1, chunk_length, fp_image);
-		if(check != chunk_length)
-			printf("fread %llu, length %llu\n", check, chunk_length);
+		if(fread(data, 1, chunk_length, fp_image) != chunk_length)
+			printf("fread size did not match length %llu\n", chunk_length); perror("readPNG"); return;
 		
+		// If the length is big we dont want to print it
 		if(chunk_length < 128){
 			if(verbose){
 				order.type = PRINT_HEX;
@@ -275,12 +223,6 @@ void readPNG(char* path, bool verbose){
 				order.bg_color = 0;
 				printer(&order);
 			}
-
-			//if(fseek(fp_image, chunk_length, SEEK_CUR) != 0){
-			//	printf("Seek error: (%ld)\n", (long int)chunk_length);
-			//	perror("readPNG");
-			//	return;
-			//}
 		}
 
 		memset(data, '\0', buffer_size);
@@ -299,129 +241,8 @@ void readPNG(char* path, bool verbose){
 
 		memset(data, '\0', buffer_size);
 		chunk_length = 0;
-
-/*		if(!running){
-			while(order.count != 1){
-				order.type = PRINT_HEX;
-				order.data = data;
-				order.size = 1;
-				order.fg_color = 30;
-				order.bg_color = 0;
-				printer(&order);
-			}
-		}*/
-
 	}
 }
-
-
-/*
-	// Read the chunk type (IHDR)
-	fread(data, 1, 4, fp_image);
-
-	if(verbose)
-		for(int i = 0; i < 4; i++)
-			printf("\x1b[36m%.2x \x1b[0m", data[i]);
-
-	if(memcmp(data, IHDR_chunk, 4) != 0){
-		printf("-> \x1b[36mIHDR\x1b[0m chunk not found!\n");
-		return;
-	}
-	if(verbose)
-		printf(" -> \x1b[36mIHDR\x1b[0m chunk found! (\x1b[46m\x1b[31mlength\x1b[0m: %d)\n", chunk_length);
-
-	memset(data, '\0', buffer_size);
-
-	// Read the IHDR info
-	
-	// Width (4 bytes)
-	fread(data, 1, 4, fp_image);
-	
-	width = hex_to_decimal((void*)data, 4);
-
-	if(verbose)
-		for(int i = 0; i < 4; i++)
-			printf("\x1b[46m\x1b[34m%.2x \x1b[0m", data[i]);
-
-	memset(data, '\0', buffer_size);
-
-	// Height (4 bytes)
-	fread(data, 1, 4, fp_image);
-
-	height = hex_to_decimal((void*)data, 4);
-
-	if(verbose)
-		for(int i = 0; i < 4; i++)
-			printf("\x1b[46m\x1b[33m%.2x \x1b[0m", data[i]);
-	
-	if(verbose)
-		printf(" -> \x1b[34mWidth\x1b[0m: %dpx, \x1b[33mHeight\x1b[0m: %dpx\n", width, height);
-
-	memset(data, '\0', buffer_size);
-
-	// Bit Depth (1 byte)
-	fread(data, 1, 1, fp_image);
-
-	if(verbose)
-		printf("\x1b[46m\x1b[32m%.2x \x1b[0m", data[0]);
-	
-	memset(data, '\0', buffer_size);
-	
-	// Color Type (1 byte)
-	fread(data, 1, 1, fp_image);
-
-	if(verbose)
-		printf("\x1b[46m\x1b[31m%.2x \x1b[0m", data[0]);
-	
-	memset(data, '\0', buffer_size);
-	
-	// Compression Method (1 byte)
-	fread(data, 1, 1, fp_image);
-
-	if(verbose)
-		printf("\x1b[46m\x1b[33m%.2x \x1b[0m", data[0]);
-	
-	memset(data, '\0', buffer_size);
-	
-	// Filter Method (1 byte)
-	fread(data, 1, 1, fp_image);
-
-	if(verbose)
-		printf("\x1b[46m\x1b[35m%.2x \x1b[0m", data[0]);
-	
-	memset(data, '\0', buffer_size);
-	
-	// Interlace Method (1 byte)
-	fread(data, 1, 1, fp_image);
-
-	if(verbose)
-		printf("\x1b[46m\x1b[34m%.2x \x1b[0m", data[0]);
-	
-	memset(data, '\0', buffer_size);
-
-	// Read CRC
-	fread(data, 1, 4, fp_image);
-
-	if(verbose)
-		for(int i = 0; i < 3; i++)
-			printf("\x1b[41m\x1b[37m%.2x \x1b[0m", data[i]);
-
-	if(verbose)
-		printf(" -> \x1b[32mBD\x1b[0m: %d, \x1b[31mCol\x1b[0m: %d, \x1b[33mCom\x1b[0m: %d, \x1b[35mFil\x1b[0m: %d, \x1b[34mInt\x1b[0m: %d\n", 0, 0, 0, 0, 0);
-
-	if(verbose)
-		printf("\x1b[41m\x1b[37m%.2x \x1b[0m", data[3]);
-
-	CRC = hex_to_decimal((void*)data, 4);
-
-	memset(data, '\0', buffer_size);
-
-	// We dont know what the next chunk will be.
-	read_chunk(fp_image, data, buffer_size, verbose);
-
-	return;
-}*/
-
 
 void printer(pOrder* order){
 	if(order->type == PRINT_HEX)
@@ -448,12 +269,10 @@ void printer(pOrder* order){
 }
 
 unsigned int hex_to_decimal(unsigned char* data, size_t size){
-	int sum = 0;
+	unsigned int sum = 0;
 
-	for(int i = size-1; i >= 0; i--){
-		//printf("\n%d + %d * %d\n", sum, (uint32_t)data[i], (int)(pow(16, 2*(size - (i+1)))));
-		sum = sum + ((uint32_t)data[i] * (int)(pow(16, 2*(size-(i+1)))));
-	}
+	for(int i = size-1; i >= 0; i--)
+		sum = sum + ((unsigned int)data[i] * (int)(pow(16, 2*(size-(i+1)))));
 
 	return sum;
 }
